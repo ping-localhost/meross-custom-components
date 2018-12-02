@@ -1,16 +1,14 @@
 """
 Adds support for Meross Smart products.
 """
-import json
 import logging
-from functools import partial
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchDevice
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 
-REQUIREMENTS = ['https://github.com/ping-localhost/MerossIot/archive/support-for-mss425e.zip#meross-iot==0.1.1.3']
+REQUIREMENTS = ['https://github.com/albertogeniola/MerossIot/archive/master.zip#meross-iot==0.1.1.3']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_EMAIL): cv.string,
@@ -22,18 +20,18 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the switch from config."""
     from meross_iot.api import MerossHttpClient
-    
+
     email = config.get(CONF_EMAIL)
     password = config.get(CONF_PASSWORD)
-    
+
     _LOGGER.debug("Initializing the Meross component")
     httpHandler = MerossHttpClient(email, password)
-    
+
     devices = []
     for supported_device in httpHandler.list_supported_devices():
         hardware = supported_device.get_sys_data()['all']['system']['hardware']
         model = hardware['type']
-        
+
         if model == 'mss425e':
             channel_number = 0
             for channel in supported_device.get_channels():
@@ -42,13 +40,14 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                     continue
 
                 channel_number += 1
-                
+
                 unique_id = "{}-{}".format(hardware['uuid'], channel_number)
                 devices.append(MerossMss425eSwitch(supported_device, channel, channel_number, unique_id))
         else:
             _LOGGER.error('Unmapped device found! %s', model)
-        
+
     async_add_entities(devices, update_before_add=True)
+
 
 class MerossSwitch(SwitchDevice):
     def __init__(self, name, type, device, unique_id):
@@ -89,6 +88,7 @@ class MerossSwitch(SwitchDevice):
         """Return the icon to use for device."""
         return self._icon
 
+
 class MerossMss425eSwitch(MerossSwitch):
     def __init__(self, device, channel, channel_number, unique_id):
         super().__init__(channel['devName'], channel['type'], device, unique_id)
@@ -110,4 +110,3 @@ class MerossMss425eSwitch(MerossSwitch):
         for channel in self._device.get_sys_data()['all']['digest']['togglex']:
             if self._channel_number == channel['channel']:
                 self._enabled = channel['onoff'] == 1
-
