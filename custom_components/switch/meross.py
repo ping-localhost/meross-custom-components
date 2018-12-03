@@ -8,7 +8,7 @@ import voluptuous as vol
 from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchDevice
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 
-REQUIREMENTS = ['https://github.com/albertogeniola/MerossIot/archive/master.zip#meross-iot==0.1.1.3']
+REQUIREMENTS = ['meross_iot==0.1.2.0']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_EMAIL): cv.string,
@@ -16,6 +16,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the switch from config."""
