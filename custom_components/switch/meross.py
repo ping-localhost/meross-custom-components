@@ -1,9 +1,10 @@
+import json
 import logging
 
 from homeassistant.components.switch import SwitchDevice
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from meross_iot.supported_devices.power_plugs import Mss425e
+from meross_iot.supported_devices.power_plugs import Mss425e, Device
 
 from custom_components.meross import DATA_DEVICES, DOMAIN, SIGNAL_DELETE_ENTITY, SIGNAL_UPDATE_ENTITY
 
@@ -24,8 +25,9 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
             continue
 
         hardware = device.get_sys_data()['all']['system']['hardware']
-        _LOGGER.info(hardware);
         model = hardware['type']
+
+        _LOGGER.info('Loading Meross device for: ', json.dumps(hardware))
 
         if model == 'mss425e':
             channel_number = 0
@@ -105,7 +107,7 @@ class MerossSwitch(SwitchDevice):
     def set_state(self, enabled) -> None:
         self._enabled = enabled
 
-    def device(self):
+    def device(self) -> Device:
         return self.hass.data[DATA_DEVICES][self.device_id]
 
     async def async_added_to_hass(self) -> None:
@@ -142,8 +144,11 @@ class Mss425eChannelSwitch(MerossSwitch):
         return self._enabled
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "{}-{}".format(self.device().device_id(), self._channel_number)
+
+    def device(self) -> Mss425e:
+        return self.hass.data[DATA_DEVICES][self.device_id]
 
     def turn_on(self, **kwargs) -> None:
         self.device() and self.device().turn_on_channel(self._channel_number)
