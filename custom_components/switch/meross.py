@@ -1,122 +1,159 @@
-"""
-Adds support for Meross Smart products.
-"""
 import logging
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchDevice
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.components.switch import SwitchDevice
+from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from meross_iot.supported_devices.power_plugs import Mss425e
 
-REQUIREMENTS = ['meross_iot==0.1.2.0']
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_EMAIL): cv.string,
-    vol.Required(CONF_PASSWORD): cv.string,
-})
+from custom_components.meross import DATA_DEVICES, DOMAIN, SIGNAL_DELETE_ENTITY, SIGNAL_UPDATE_ENTITY
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the switch from config."""
-    from meross_iot.api import MerossHttpClient
+def setup_platform(hass, config, add_entities, discovery_info=None):
+    """Set up Meross Switch device."""
+    if discovery_info is None:
+        return
 
-    email = config.get(CONF_EMAIL)
-    password = config.get(CONF_PASSWORD)
-
-    _LOGGER.debug("Initializing the Meross component")
-    meross = MerossHttpClient(email, password)
+    meross_devices = hass.data[DATA_DEVICES]
 
     devices = []
-    for supported_device in meross.list_supported_devices():
-        hardware = supported_device.get_sys_data()['all']['system']['hardware']
+    for dev_id in discovery_info.get('device_ids'):
+        device = meross_devices[dev_id]
+        if device is None:
+            continue
+
+        hardware = device.get_sys_data()['all']['system']['hardware']
+        _LOGGER.info(hardware);
         model = hardware['type']
 
         if model == 'mss425e':
             channel_number = 0
-            for channel in supported_device.get_channels():
-                # The first channel should be ignored for now
+            for channel in device.get_channels():
                 if not channel:
                     continue
 
                 channel_number += 1
 
-                unique_id = "{}-{}".format(hardware['uuid'], channel_number)
-                devices.append(MerossMss425eSwitch(supported_device, channel, unique_id, channel_number))
+                devices.append(Mss425eChannelSwitch(device, channel, channel_number))
         else:
-            _LOGGER.error('Unmapped device found! %s', model)
+            devices.append(MerossSwitch(device, 'Meross.{}'.format(device.device_id()), 'switch'))
 
-    async_add_entities(devices, True)
+    add_entities(devices)
 
 
 class MerossSwitch(SwitchDevice):
-    _enabled = False
+    _enabled: bool = False
 
-    def __init__(self, device, name: str, device_type: str, unique_id: str):
+    def __init__(self, device, name: str, device_type: str):
         self._device = device
-        self._name = name
-        self._device_type = device_type
-        self._unique_id = unique_id
+        self._name: str = name
+        self._device_type: str = device_type
+        self._device_id: str = device.device_id()
 
     @property
-    def should_poll(self):
+    def should_poll(self) -> bool:
         """Poll this switch."""
         return True
 
     @property
-    def name(self):
+    def name(self) -> str:
         """Return the name of the switch."""
         return self._name
 
     @property
-    def type(self):
+    def type(self) -> str:
         """Return the name of the type."""
         return self._device_type
 
     @property
-    def is_on(self):
-        """Return true if switch is on."""
+    def is_on(self) -> bool:
         return self._enabled
 
     @property
-    def unique_id(self):
-        """Return an unique ID."""
-        return self._unique_id
+    def icon(self) -> str:
+        """Return the icon to use for device."""
+        if self.type.lower() == 'usb':
+            return 'mdi:usb'
+        elif self.type.lower() == 'switch':
+            return 'mdi:power-socket'
+        else:
+            return 'mdi:flash'
 
     @property
-    def icon(self):
-        """Return the icon to use for device."""
-        return 'mdi:usb' if self._device_type.lower() == 'usb' else 'mdi:power-socket'
+    def device_id(self) -> str:
+        """Returns the device ID."""
+        return self._device_id
 
     def turn_on(self, **kwargs) -> None:
-        """Turn the entity on."""
-        raise NotImplementedError()
+        """Turn the switch on."""
+        self.device() and self.device().turn_on()
 
     def turn_off(self, **kwargs) -> None:
-        """Turn the entity off."""
-        raise NotImplementedError()
+        """Turn the device off."""
+        self.device() and self.device().turn_off()
+
+    def update(self) -> None:
+        """Update the entity"""
+        if self.device() is None:
+            return
+
+        status = self.device().get_status()
+        if status is not None:
+            self._enabled = status
+
+    def set_state(self, enabled) -> None:
+        self._enabled = enabled
+
+    def device(self):
+        return self.hass.data[DATA_DEVICES][self.device_id]
+
+    async def async_added_to_hass(self) -> None:
+        """Call when entity is added to hass."""
+        device_id = self.device_id
+
+        self.update()
+
+        self.hass.data[DOMAIN]['entities'][device_id] = self.entity_id
+        async_dispatcher_connect(self.hass, SIGNAL_DELETE_ENTITY, self._delete_callback)
+        async_dispatcher_connect(self.hass, SIGNAL_UPDATE_ENTITY, self._update_callback)
+
+    @callback
+    def _delete_callback(self, device_id) -> None:
+        """Remove this entity."""
+        if device_id == self.unique_id:
+            self.hass.async_create_task(self.async_remove())
+
+    @callback
+    def _update_callback(self) -> None:
+        """Call update method."""
+        self.async_schedule_update_ha_state(True)
 
 
-class MerossMss425eSwitch(MerossSwitch):
-    def __init__(self, device: Mss425e, channel, unique_id: str, channel_number: int):
-        super().__init__(device, channel['devName'], channel['type'], unique_id)
+class Mss425eChannelSwitch(MerossSwitch):
+    def __init__(self, device: Mss425e, channel, channel_number: int):
+        super().__init__(device, channel['devName'], channel['type'])
 
         self._channel = channel
         self._channel_number = channel_number
 
-        self.update()
+    @property
+    def is_on(self) -> bool:
+        return self._enabled
 
-    def turn_on(self, **kwargs):
-        self._device.turn_on_channel(self._channel_number)
+    @property
+    def unique_id(self):
+        return "{}-{}".format(self.device().device_id(), self._channel_number)
+
+    def turn_on(self, **kwargs) -> None:
+        self.device() and self.device().turn_on_channel(self._channel_number)
         self._enabled = True
 
-    def turn_off(self, **kwargs):
-        self._device.turn_off_channel(self._channel_number)
+    def turn_off(self, **kwargs) -> None:
+        self.device() and self.device().turn_off_channel(self._channel_number)
         self._enabled = False
 
-    def update(self):
-        for channel in self._device.get_sys_data()['all']['digest']['togglex']:
+    def update(self) -> None:
+        for channel in self.device().get_sys_data()['all']['digest']['togglex']:
             if self._channel_number == channel['channel']:
                 self._enabled = channel['onoff'] == 1
