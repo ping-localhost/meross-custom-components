@@ -7,6 +7,7 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchDevice
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from meross_iot.supported_devices.power_plugs import Mss425e
 
 REQUIREMENTS = ['meross_iot==0.1.2.0']
 
@@ -26,10 +27,10 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     password = config.get(CONF_PASSWORD)
 
     _LOGGER.debug("Initializing the Meross component")
-    httpHandler = MerossHttpClient(email, password)
+    meross = MerossHttpClient(email, password)
 
     devices = []
-    for supported_device in httpHandler.list_supported_devices():
+    for supported_device in meross.list_supported_devices():
         hardware = supported_device.get_sys_data()['all']['system']['hardware']
         model = hardware['type']
 
@@ -43,21 +44,21 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 channel_number += 1
 
                 unique_id = "{}-{}".format(hardware['uuid'], channel_number)
-                devices.append(MerossMss425eSwitch(supported_device, channel, channel_number, unique_id))
+                devices.append(MerossMss425eSwitch(supported_device, channel, unique_id, channel_number))
         else:
             _LOGGER.error('Unmapped device found! %s', model)
 
-    async_add_entities(devices, update_before_add=True)
+    async_add_entities(devices, True)
 
 
 class MerossSwitch(SwitchDevice):
-    def __init__(self, name, type, device, unique_id):
-        self._name = name
-        self._type = type
-        self._enabled = False
+    _enabled = False
+
+    def __init__(self, device, name: str, device_type: str, unique_id: str):
         self._device = device
+        self._name = name
+        self._device_type = device_type
         self._unique_id = unique_id
-        self._icon = 'mdi:usb' if type.lower() == 'usb' else 'mdi:power-socket'
 
     @property
     def should_poll(self):
@@ -72,7 +73,7 @@ class MerossSwitch(SwitchDevice):
     @property
     def type(self):
         """Return the name of the type."""
-        return self._type
+        return self._device_type
 
     @property
     def is_on(self):
@@ -87,12 +88,20 @@ class MerossSwitch(SwitchDevice):
     @property
     def icon(self):
         """Return the icon to use for device."""
-        return self._icon
+        return 'mdi:usb' if self._device_type.lower() == 'usb' else 'mdi:power-socket'
+
+    def turn_on(self, **kwargs) -> None:
+        """Turn the entity on."""
+        raise NotImplementedError()
+
+    def turn_off(self, **kwargs) -> None:
+        """Turn the entity off."""
+        raise NotImplementedError()
 
 
 class MerossMss425eSwitch(MerossSwitch):
-    def __init__(self, device, channel, channel_number, unique_id):
-        super().__init__(channel['devName'], channel['type'], device, unique_id)
+    def __init__(self, device: Mss425e, channel, unique_id: str, channel_number: int):
+        super().__init__(device, channel['devName'], channel['type'], unique_id)
 
         self._channel = channel
         self._channel_number = channel_number
