@@ -2,25 +2,20 @@ import json
 import logging
 
 from homeassistant.components.switch import SwitchDevice
-from homeassistant.core import callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from meross_iot.supported_devices.power_plugs import Mss425e, Device
 
-from . import DATA_DEVICES, DOMAIN, SIGNAL_DELETE_ENTITY, SIGNAL_UPDATE_ENTITY
+from custom_components.meross import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up Meross Switch device."""
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Add the Sonoff Switch entities"""
     if discovery_info is None:
         return
 
-    meross_devices = hass.data[DATA_DEVICES]
-
-    devices = []
-    for dev_id in discovery_info.get('device_ids'):
-        device = meross_devices[dev_id]
+    entities = []
+    for device in hass.data[DOMAIN].get_devices(force_update=True):
         if device is None:
             continue
 
@@ -37,26 +32,20 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 
                 channel_number += 1
 
-                devices.append(Mss425eChannelSwitch(device, channel, channel_number))
+                entities.append(Mss425eChannelSwitch(device, channel, channel_number))
         else:
-            devices.append(MerossSwitch(device, 'Meross.{}'.format(device.device_id()), 'switch'))
+            entities.append(MerossSwitch(device, 'Meross.{}'.format(device.device_id()), 'switch'))
 
-    add_entities(devices)
+    async_add_entities(entities, update_before_add=False)
 
 
 class MerossSwitch(SwitchDevice):
-    _enabled: bool = False
-
     def __init__(self, device, name: str, device_type: str):
         self._device = device
-        self._name: str = name
-        self._device_type: str = device_type
-        self._device_id: str = device.device_id()
-
-    @property
-    def should_poll(self) -> bool:
-        """Poll this switch."""
-        return True
+        self._name = name
+        self._device_type = device_type
+        self._device_id = device.device_id()
+        self._enabled = False
 
     @property
     def name(self) -> str:
@@ -108,28 +97,13 @@ class MerossSwitch(SwitchDevice):
         self._enabled = enabled
 
     def device(self) -> Device:
-        return self.hass.data[DATA_DEVICES][self.device_id]
+        return self._device
 
     async def async_added_to_hass(self) -> None:
         """Call when entity is added to hass."""
-        device_id = self.device_id
+        self._device_id = self.device_id
 
         self.update()
-
-        self.hass.data[DOMAIN]['entities'][device_id] = self.entity_id
-        async_dispatcher_connect(self.hass, SIGNAL_DELETE_ENTITY, self._delete_callback)
-        async_dispatcher_connect(self.hass, SIGNAL_UPDATE_ENTITY, self._update_callback)
-
-    @callback
-    def _delete_callback(self, device_id) -> None:
-        """Remove this entity."""
-        if device_id == self.unique_id:
-            self.hass.async_create_task(self.async_remove())
-
-    @callback
-    def _update_callback(self) -> None:
-        """Call update method."""
-        self.async_schedule_update_ha_state(True)
 
 
 class Mss425eChannelSwitch(MerossSwitch):
@@ -148,7 +122,7 @@ class Mss425eChannelSwitch(MerossSwitch):
         return "{}-{}".format(self.device().device_id(), self._channel_number)
 
     def device(self) -> Mss425e:
-        return self.hass.data[DATA_DEVICES][self.device_id]
+        return self._device
 
     def turn_on(self, **kwargs) -> None:
         self.device() and self.device().turn_on_channel(self._channel_number)

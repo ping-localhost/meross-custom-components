@@ -12,9 +12,8 @@ This component exposes support Meross Smart Devices to your Home Assistant insta
   
 #### Example:
 ```
-switch:
-  - platform: meross
-    email: e@mail.com
-    password: !secret meross_password
+meross
+  username: e@mail.com
+  password: !secret meross_password
 ```
 
