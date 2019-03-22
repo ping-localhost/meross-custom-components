@@ -6,7 +6,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from meross_iot.supported_devices.power_plugs import Mss425e, Device
 
-from custom_components.meross import DATA_DEVICES, DOMAIN, SIGNAL_DELETE_ENTITY, SIGNAL_UPDATE_ENTITY
+from . import DATA_DEVICES, DOMAIN, SIGNAL_DELETE_ENTITY, SIGNAL_UPDATE_ENTITY
 
 _LOGGER = logging.getLogger(__name__)
 
