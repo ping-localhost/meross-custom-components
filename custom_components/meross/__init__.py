@@ -2,22 +2,23 @@ import logging
 from datetime import timedelta
 
 import voluptuous as vol
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_EMAIL
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.discovery import load_platform
-from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.util.async_ import run_coroutine_threadsafe
+from meross_iot.cloud.devices.power_plugs import GenericPlug
+from meross_iot.manager import MerossManager
+from meross_iot.meross_event import MerossEventType
 
 _LOGGER = logging.getLogger(__name__)
 
-REQUIREMENTS = ['meross_iot', 'paho-mqtt']
+REQUIREMENTS = ['meross_iot']
 
 DOMAIN = 'meross'
 SCAN_INTERVAL = timedelta(seconds=60)
 
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
-        vol.Required(CONF_USERNAME): cv.string,
+        vol.Required(CONF_EMAIL): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
     })
 }, extra=vol.ALLOW_EXTRA)
@@ -25,37 +26,52 @@ CONFIG_SCHEMA = vol.Schema({
 
 async def async_setup(hass, config):
     """Set up The MerossIot Component."""
-
     hass.data[DOMAIN] = Meross(config)
 
     for component in ['switch']:
         load_platform(hass, component, DOMAIN, {}, config)
 
-    def update_devices(event_time):
-        """Refresh"""
-        _LOGGER.debug("Updating devices status")
-
-        run_coroutine_threadsafe(hass.data[DOMAIN].async_update(), hass.loop)
-
-    async_track_time_interval(hass, update_devices, SCAN_INTERVAL)
-
     return True
 
 
 class Meross():
-    def __init__(self, config):
-        from meross_iot.api import MerossHttpClient
+    from custom_components.meross.switch import MerossSwitch
 
-        self._username = config.get(DOMAIN, {}).get(CONF_USERNAME, '')
+    def __init__(self, config):
+        self._email = config.get(DOMAIN, {}).get(CONF_EMAIL, '')
         self._password = config.get(DOMAIN, {}).get(CONF_PASSWORD, '')
 
-        self._client = MerossHttpClient(email=self._username, password=self._password)
-        self._devices = self._client.list_supported_devices()
+        self._client = MerossManager(meross_email=self._email, meross_password=self._password)
+        self._devices = self._client.get_devices_by_kind(GenericPlug)
+        self._entities = []
+
+        self._client.register_event_handler(self.event_handler)
+        self._client.start()
+
+    def add_entity(self, meross_switch: MerossSwitch):
+        self._entities.count(meross_switch) == 0 and self._entities.append(meross_switch)
+
+    def remove_entity(self, meross_switch: MerossSwitch):
+        self._entities.count(meross_switch) != 0 and self._entities.remove(meross_switch)
+
+    def get_entities(self):
+        return self._entities
 
     def update_devices(self):
-        self._devices = self._client.list_supported_devices()
+        self._devices = self._client.get_devices_by_kind(GenericPlug)
 
         return self._devices
+
+    def get_entity(self, device_id, channel_number=0):
+        for device in self._entities:
+            if device.device_id != device_id:
+                continue
+
+            if channel_number == 0:
+                return device
+
+            if device.channel_number == channel_number:
+                return device
 
     def get_devices(self, force_update=False):
         if force_update:
@@ -63,10 +79,19 @@ class Meross():
 
         return self._devices
 
-    def get_device(self, device_id):
-        for device in self.get_devices():
-            if device.device_id() == device_id:
-                return device
+    def event_handler(self, event):
+        if event.event_type == MerossEventType.DEVICE_ONLINE_STATUS:
+            _LOGGER.debug("Device online status changed: %s went %s" % (event.device.name, event.status))
+            pass
+        elif event.event_type == MerossEventType.DEVICE_SWITCH_STATUS:
+            _LOGGER.debug("Switch state changed: Device %s (channel %d)" % (event.device.name, event.channel_id))
+            device = self.get_entity(event.device.uuid, event.channel_id)
+            if device is None:
+                return
 
-    async def async_update(self):
-        return self.update_devices()
+            device.update_status()
+            device.schedule_update_ha_state()
+        elif event.event_type == MerossEventType.CLIENT_CONNECTION:
+            _LOGGER.debug("Connection change has happened: %s" % event.status)
+        else:
+            _LOGGER.debug("Unknown event: %s" % event.event_type)

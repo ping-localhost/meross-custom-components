@@ -1,6 +1,6 @@
 # Requirements for the components used
-meross-iot>=0.1.2.0
+meross_iot==0.3.0.0rc4
 voluptuous>=0.11.5
 
 # This is already available in Hassio/HassOs, just needed for local dev.
-homeassistant>=0.83.3
+homeassistant>=0.94.0

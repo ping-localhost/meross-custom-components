@@ -1,0 +1,8 @@
+{
+  "domain": "meross",
+  "name": "Meross",
+  "documentation": "https://github.com/ping-localhost/meross-custom-component",
+  "dependencies": [],
+  "codeowners": ["@ping-localhost"],
+  "requirements": ["meross_iot==0.3.0.0rc4"]
+}
