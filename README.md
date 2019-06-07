@@ -19,7 +19,7 @@ Just add your credentials to `configuration.yaml`, both of these are mandatory:
 
 ### Example:
 ``` yaml
-meross
+meross:
   email: e@mail.com
   password: !secret meross_password
 ```
