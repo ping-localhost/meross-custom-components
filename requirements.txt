@@ -1,5 +1,5 @@
 # Requirements for the components used
-meross_iot==0.3.1.3
+meross_iot==0.3.1.5
 voluptuous>=0.11.5
 
 # This is already available in Hassio/HassOs, just needed for local dev.
