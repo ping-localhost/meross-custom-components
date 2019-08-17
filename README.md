@@ -1,5 +1,9 @@
 # Meross Smart Device Component
 
+This component has been replaced by the [Meross HomeAssistant component](https://github.com/albertogeniola/meross-homeassistant). It isn't perfect yet, but it's a lot more complete than this component, which is why I've archived this repository.
+
+----
+
 This component exposes support Meross Smart Devices to your Home Assistant instance.
 
 **Currently supported devices**:
